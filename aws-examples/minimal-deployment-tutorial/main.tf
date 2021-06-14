@@ -10,19 +10,19 @@ provider "aws" {
 }
 
 provider "random" {
-  version = "~> 2.1"
+  version = ">= 2.1"
 }
 
 provider "local" {
-  version = "~> 1.4"
+  version = ">= 1.4"
 }
 
 provider "null" {
-  version = "~> 2.1"
+  version = ">= 2.1"
 }
 
 provider "template" {
-  version = "~> 2.1"
+  version = ">= 2.1"
 }
 
 # VPC
@@ -63,14 +63,15 @@ provider "kubernetes" {
   cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
   token                  = data.aws_eks_cluster_auth.cluster.token
   load_config_file       = false
-  version                = "~> 1.11"
+  version                = ">= 1.11"
 }
 
 # EKS Cluster
 module "eks" {
   source          = "terraform-aws-modules/eks/aws"
   cluster_name    = "${var.deployment_name}cluster"
-  cluster_version = "1.15"
+  cluster_version = "1.18"
+  version = ">=17.0.3"
 
   subnets         = module.vpc.private_subnets
   vpc_id          = module.vpc.vpc_id
@@ -80,26 +81,76 @@ module "eks" {
 
   #tags = {}
 
-  worker_groups = [
-    {
-      name                  = "core"
-      asg_max_size          = 1
-      asg_min_size          = 1
-      asg_desired_capacity  = 1
-      instance_type         = "t3.xlarge"
-      subnets               = [module.vpc.private_subnets[0]]
+ node_groups = {
+    user = {
+      desired_capacity = 1
+      max_capacity     = 3
+      min_capacity     = 1
 
-      # Use this to set labels / taints
-      kubelet_extra_args    = "--node-labels=node-role.kubernetes.io/core=core,hub.jupyter.org/node-purpose=core"
-      
-      #tags = {}
+      instance_types = ["t3.large"]
+      capacity_type  = "SPOT"
+      k8s_labels = {
+        "hub.jupyter.org/node-purpose" = "user"
+      }
+      taints = [
+        {
+          key    = "hub.jupyter.org_dedicated"
+          value  = "user"
+          effect = "NO_SCHEDULE"
+        }
+      ]
     },
-    {
-      name               = "user"
-      instance_type      = "m5.2xlarge"
+    test = {
+      desired_capacity = 1
+      max_capacity     = 3
+      min_capacity     = 1
 
-      # Use this to set labels / taints
-      kubelet_extra_args = "--node-labels=node-role.kubernetes.io/user=user,hub.jupyter.org/node-purpose=user"
+      instance_types = ["t3.large"]
+      capacity_type  = "SPOT"
+      create_launch_template = true
+      kubelet_extra_args = "--register-with-taints=hub.jupyter.org/dedicated=user:NoSchedule"
+      k8s_labels = {
+        "hub.jupyter.org/node-purpose" = "user"
+      }
+      # taints = [
+      #   {
+      #     key    = "hub.jupyter.org/dedicated"
+      #     value  = "user"
+      #     effect = "No_Schedule"
+      #   }
+      # ]
     }
-  ]
+    core = {
+      desired_capacity = 2
+      max_capacity     = 2
+      min_capacity     = 2
+
+      instance_types = ["t3.large"]
+      capacity_type  = "SPOT"
+    }
+  }
+
+  # worker_groups = [
+  #   {
+  #     name                  = "core"
+  #     asg_max_size          = 1
+  #     asg_min_size          = 1
+  #     asg_desired_capacity  = 1
+  #     instance_type         = "t3.xlarge"
+  #     subnets               = [module.vpc.private_subnets[0]]
+
+  #     # Use this to set labels / taints
+  #     kubelet_extra_args    = "--node-labels=node-role.kubernetes.io/core=core,hub.jupyter.org/node-purpose=core"
+      
+  #     #tags = {}
+  #   },
+  #   {
+  #     name               = "user"
+  #     instance_type      = "m5.2xlarge"
+
+  #     # Use this to set labels / taints
+  #     kubelet_extra_args = "--node-labels=node-role.kubernetes.io/user=user,hub.jupyter.org/node-purpose=user"
+  #   }
+  # ]
 }
+
